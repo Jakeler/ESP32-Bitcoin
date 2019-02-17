@@ -3,6 +3,7 @@
 
 // Print sha256 in little endian
 void printHash(unsigned char* string) {
+  Serial.print("Hash: ");
   for(int i=31; i>=0; i--){
     char str[3];
 
@@ -36,16 +37,12 @@ void setup(){
     0x88, 0x6f, 0x2e, 0x17, // difficulty bits
     0x94, 0x4b, 0x40, 0x19 // nonce
   };
-  const size_t payloadLength = 80;    
+  uint32_t targetNonce = 423644052; // 0x19404b94
+  const size_t payloadLength = 80;
   
   byte interResult[32]; // 256 bit
   byte shaResult[32]; // 256 bit
  
-  uint32_t nonce = 423644052; // 0x19404b94
-  payload[76] = (nonce >> 0) & 0xFF;
-  payload[77] = (nonce >> 8) & 0xFF;
-  payload[78] = (nonce >> 16) & 0xFF;
-  payload[79] = (nonce >> 24) & 0xFF;
 
   mbedtls_md_context_t ctx;
   mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
@@ -53,28 +50,40 @@ void setup(){
   mbedtls_md_init(&ctx);
   mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 0);
 
+  uint32_t rounds = 10000;
+  uint32_t nonce = targetNonce-rounds;
 
-  uint32_t t1 = micros();
-  mbedtls_md_starts(&ctx);
-  mbedtls_md_update(&ctx, payload, payloadLength);
-  mbedtls_md_finish(&ctx, interResult);
-  uint32_t t2 = micros();
-  mbedtls_md_starts(&ctx);
-  mbedtls_md_update(&ctx, interResult, 32);
-  mbedtls_md_finish(&ctx, shaResult);
-  uint32_t t3 = micros();
+  Serial.println("Started mining...");
+  uint32_t startT = micros();
+  while(true) {
+    payload[76] = (nonce >> 0) & 0xFF;
+    payload[77] = (nonce >> 8) & 0xFF;
+    payload[78] = (nonce >> 16) & 0xFF;
+    payload[79] = (nonce >> 24) & 0xFF;
+
+    mbedtls_md_starts(&ctx);
+    mbedtls_md_update(&ctx, payload, payloadLength);
+    mbedtls_md_finish(&ctx, interResult);
+
+    mbedtls_md_starts(&ctx);
+    mbedtls_md_update(&ctx, interResult, 32);
+    mbedtls_md_finish(&ctx, shaResult);
+
+    if(checkHash(shaResult))
+      break;
+  
+    nonce++;
+  }
+  uint32_t duration = micros() - startT;
 
   mbedtls_md_free(&ctx);
  
-  printHash(interResult);
+  Serial.println(checkHash(shaResult)? "Valid Block found!" : "no valid block...");
   printHash(shaResult);
+  Serial.printf("With nonce: %d | 0x%x\n", nonce, nonce);
+  Serial.printf("In %d rounds, %f ms\n", rounds, duration/1000.0);
+  Serial.printf("Hash Rate: %f kH/s", (1000.0/duration)*rounds);
 
-
-  Serial.println("1: " + String(t2-t1));
-  Serial.println("2: " + String(t3-t2));
-  Serial.println(nonce);
-
-  Serial.println(checkHash(shaResult)? "Valid Hash!" : "no valid block...");
 }
  
 void loop(){}
