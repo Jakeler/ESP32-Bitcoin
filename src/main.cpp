@@ -22,11 +22,9 @@ bool checkHash(unsigned char* string) {
   }
   return valid;
 }
- 
-void setup(){
- 
-  Serial.begin(9600);
-  Serial.println();
+
+void runWorker(const char *name, uint32_t rounds) {
+  Serial.printf("\nRunning %s on core %d\n", name, xPortGetCoreID());
  
   // Header of Bitcoin block nr. 563333
   byte payload[] = {
@@ -37,21 +35,19 @@ void setup(){
     0x88, 0x6f, 0x2e, 0x17, // difficulty bits
     0x94, 0x4b, 0x40, 0x19 // nonce
   };
-  uint32_t targetNonce = 423644052; // 0x19404b94
   const size_t payloadLength = 80;
+  uint32_t targetNonce = 423644052; // 0x19404b94
+  uint32_t nonce = targetNonce-rounds;
+
   
   byte interResult[32]; // 256 bit
   byte shaResult[32]; // 256 bit
  
-
   mbedtls_md_context_t ctx;
   mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
  
   mbedtls_md_init(&ctx);
   mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 0);
-
-  uint32_t rounds = 10000;
-  uint32_t nonce = targetNonce-rounds;
 
   Serial.println("Started mining...");
   uint32_t startT = micros();
@@ -83,7 +79,15 @@ void setup(){
   Serial.printf("With nonce: %d | 0x%x\n", nonce, nonce);
   Serial.printf("In %d rounds, %f ms\n", rounds, duration/1000.0);
   Serial.printf("Hash Rate: %f kH/s", (1000.0/duration)*rounds);
-
 }
  
+void setup(){
+  Serial.begin(9600);
+  delay(3000);
+
+  runWorker("T1", 20000);
+  runWorker("T2", 20000);
+}
+
+
 void loop(){}
