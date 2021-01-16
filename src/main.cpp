@@ -1,6 +1,11 @@
 #include <Arduino.h>
 #include "mbedtls/md.h"
 
+#define THREADS 2
+#define SHARE_DIFF 20000
+
+int shares = 0;
+
 // Print sha256 in little endian
 void printHash(unsigned char* string) {
   Serial.print("Hash: ");
@@ -23,8 +28,8 @@ bool checkHash(unsigned char* string) {
   return valid;
 }
 
-void runWorker(const char *name, uint32_t rounds) {
-  Serial.printf("\nRunning %s on core %d\n", name, xPortGetCoreID());
+void runWorker(void *name) {
+  Serial.printf("\nRunning %s on core %d\n", (char *)name, xPortGetCoreID());
  
   // Header of Bitcoin block nr. 563333
   byte payload[] = {
@@ -37,7 +42,6 @@ void runWorker(const char *name, uint32_t rounds) {
   };
   const size_t payloadLength = 80;
   uint32_t targetNonce = 423644052; // 0x19404b94
-  uint32_t nonce = targetNonce-rounds;
 
   
   byte interResult[32]; // 256 bit
@@ -48,6 +52,8 @@ void runWorker(const char *name, uint32_t rounds) {
  
   mbedtls_md_init(&ctx);
   mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 0);
+
+  uint32_t nonce = targetNonce-SHARE_DIFF;
 
   Serial.println("Started mining...");
   uint32_t startT = micros();
@@ -65,9 +71,16 @@ void runWorker(const char *name, uint32_t rounds) {
     mbedtls_md_update(&ctx, interResult, 32);
     mbedtls_md_finish(&ctx, shaResult);
 
-    if(checkHash(shaResult))
-      break;
-  
+    if(checkHash(shaResult)) {
+      // Comment this in if you want to run only a single time
+      // break;
+      nonce = targetNonce-SHARE_DIFF;
+      Serial.printf("%s on core %d: ", (char *)name, xPortGetCoreID());
+      Serial.printf("Share completed with nonce: %d | 0x%x\n", nonce, nonce);
+      shares++;
+      // vTaskDelay(1);
+    }
+
     nonce++;
   }
   uint32_t duration = micros() - startT;
@@ -77,16 +90,35 @@ void runWorker(const char *name, uint32_t rounds) {
   Serial.println(checkHash(shaResult)? "Valid Block found!" : "no valid block...");
   printHash(shaResult);
   Serial.printf("With nonce: %d | 0x%x\n", nonce, nonce);
-  Serial.printf("In %d rounds, %f ms\n", rounds, duration/1000.0);
-  Serial.printf("Hash Rate: %f kH/s", (1000.0/duration)*rounds);
+  Serial.printf("In %d rounds, %f ms\n", SHARE_DIFF, duration/1000.0);
+  Serial.printf("Hash Rate: %f kH/s", (1000.0/duration)*SHARE_DIFF);
 }
- 
+
+void runMonitor(void *name) {
+  unsigned long start = millis();
+
+  while (1) {
+    unsigned long elapsed = millis()-start;
+    Serial.printf(">>> Completed %d share(s), %d hashes, avg. hashrate %.3f KH/s\n",
+      shares, shares*SHARE_DIFF, (1.0*shares*SHARE_DIFF)/elapsed);
+    delay(5000);
+  }
+}
+
 void setup(){
   Serial.begin(9600);
   delay(3000);
 
-  runWorker("T1", 20000);
-  runWorker("T2", 20000);
+  // Idle task that would reset WDT never runs, because core 0 gets fully utilized
+  disableCore0WDT();
+
+  xTaskCreate(runWorker, "T1", 30000, (void*)"Worker1", 1, NULL);
+  xTaskCreate(runWorker, "T2", 30000, (void*)"Worker2", 1, NULL);
+  xTaskCreate(runWorker, "T3", 30000, (void*)"Worker3", 1, NULL);
+  xTaskCreate(runWorker, "T4", 30000, (void*)"Worker4", 1, NULL);
+
+  // Higher prio monitor task
+  xTaskCreate(runMonitor, "Monitor", 5000, NULL, 4, NULL);
 }
 
 
