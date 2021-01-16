@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "mbedtls/md.h"
 
-#define THREADS 2
+#define THREADS 4
 #define SHARE_DIFF 20000
 
 int shares = 0;
@@ -55,7 +55,6 @@ void runWorker(void *name) {
 
   uint32_t nonce = targetNonce-SHARE_DIFF;
 
-  Serial.println("Started mining...");
   uint32_t startT = micros();
   while(true) {
     payload[76] = (nonce >> 0) & 0xFF;
@@ -112,10 +111,14 @@ void setup(){
   // Idle task that would reset WDT never runs, because core 0 gets fully utilized
   disableCore0WDT();
 
-  xTaskCreate(runWorker, "T1", 30000, (void*)"Worker1", 1, NULL);
-  xTaskCreate(runWorker, "T2", 30000, (void*)"Worker2", 1, NULL);
-  xTaskCreate(runWorker, "T3", 30000, (void*)"Worker3", 1, NULL);
-  xTaskCreate(runWorker, "T4", 30000, (void*)"Worker4", 1, NULL);
+  for (size_t i = 0; i < THREADS; i++) {
+    char *name = (char*) malloc(32);
+    sprintf(name, "Worker[%d]", i);
+
+    // Start mining tasks
+    BaseType_t res = xTaskCreate(runWorker, name, 30000, (void*)name, 1, NULL);
+    Serial.printf("Starting %s %s!\n", name, res == pdPASS? "successful":"failed");
+  }
 
   // Higher prio monitor task
   xTaskCreate(runMonitor, "Monitor", 5000, NULL, 4, NULL);
